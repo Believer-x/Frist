@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "字幕桥 · 视频双语翻译",
+  "version": "1.0.0",
+  "description": "自动翻译 YouTube、B站及 HTML5 视频的现有字幕，显示双语字幕。",
+  "permissions": ["storage"],
+  "host_permissions": ["https://translate.googleapis.com/*"],
+  "optional_host_permissions": ["https://*/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "background": {"service_worker": "background.js", "type": "module"},
+  "action": {"default_title": "字幕桥", "default_popup": "popup.html"},
+  "content_scripts": [{"matches": ["http://*/*", "https://*/*"], "js": ["content.js"], "all_frames": true, "run_at": "document_idle"}]
+}
