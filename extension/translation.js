@@ -1,4 +1,4 @@
-export const DEFAULTS = Object.freeze({enabled: true, target: 'zh-CN', source: 'auto', bilingual: true, provider: 'google', endpoint: '', apiKey: ''});
+export const DEFAULTS = Object.freeze({mode: 'audio', speechEndpoint: 'http://127.0.0.1:8765', enabled: true, target: 'zh-CN', source: 'auto', bilingual: true, provider: 'google', endpoint: '', apiKey: ''});
 export function normalizeText(text) {
   return String(text ?? '').replace(/\s+/g, ' ').trim().slice(0, 1200);
 }

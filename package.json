@@ -1,11 +1,11 @@
 {
   "name": "subtitle-bridge",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",
-    "check": "node --check extension/background.js && node --check extension/content.js && node --check extension/popup.js",
+    "check": "node --check extension/background.js && node --check extension/content.js && node --check extension/popup.js && node --check extension/offscreen.js && node --check extension/capture-worklet.js",
     "test:browser": "node tests/browser.mjs"
   },
   "devDependencies": {

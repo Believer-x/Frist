@@ -33,11 +33,12 @@ try {
   const id = new URL(worker.url()).host;
   const popup = await context.newPage();
   await popup.goto(`chrome-extension://${id}/popup.html`);
+  await popup.locator('#mode').selectOption('caption');
   await popup.locator('#provider').selectOption('libre');
   await popup.locator('#endpoint').fill(origin);
   // Seed an optional permission through Chrome's extension API in a user gesture.
   // Headless Chromium automatically grants this permission on a button click.
-  await popup.locator('button').click();
+  await popup.locator('#save').click();
   await popup.waitForFunction(() => document.querySelector('#status').textContent.includes('已保存'));
   const settings = await worker.evaluate(async () => (await chrome.storage.local.get('settings')).settings);
   assert.equal(settings.provider,'libre');

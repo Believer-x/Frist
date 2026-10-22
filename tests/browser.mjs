@@ -6,15 +6,15 @@ import {readFile} from 'node:fs/promises';
 import {DEFAULTS} from '../extension/translation.js';
 const fixture = process.env.VIDEO_FIXTURE;
 if (!fixture) throw new Error('Set VIDEO_FIXTURE to a playable WebM fixture.');
-let calls = 0, listener;
+let calls = 0; const listeners = [];
 let settings;
 globalThis.chrome = {
-  runtime: {onMessage: {addListener: fn => listener = fn}},
+  runtime: {getURL: p => 'chrome-extension://test/' + p, onMessage: {addListener: fn => listeners.push(fn)}},
   storage: {local: {get: async () => ({settings})}, onChanged: {addListener: () => {}}},
   permissions: {contains: async () => true}
 };
 await import('../extension/background.js');
-function message(payload) {return new Promise(resolve => listener(payload, {}, resolve));}
+function message(payload) {return new Promise(resolve => {if (!listeners.some(fn => fn(payload, {}, resolve) === true)) resolve(undefined);});}
 const server = http.createServer(async (req,res) => {
   if (req.url === '/translate') {
     let body = ''; for await (const chunk of req) body += chunk;
@@ -25,14 +25,14 @@ const server = http.createServer(async (req,res) => {
   } else if (req.url === '/video.webm') {res.setHeader('Content-Type','video/webm');res.end(await readFile(fixture));}
   else if (req.url.startsWith('/extension/')) {
     const name = req.url.split('/').pop();
-    if (!['popup.html','popup.css','popup.js','translation.js'].includes(name)) {res.writeHead(404);res.end();return;}
+    if (!['popup.html','popup.css','popup.js','translation.js','audio-utils.js'].includes(name)) {res.writeHead(404);res.end();return;}
     res.setHeader('Content-Type',name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':'text/html');
     res.end(await readFile(new URL('../extension/' + name,import.meta.url)));
   } else {res.setHeader('Content-Type','text/html');res.end('<html><body><video muted autoplay loop width="640" height="360" src="/video.webm"></video></body></html>');}
 });
 await new Promise(resolve => server.listen(0,'127.0.0.1',resolve));
 const origin = `http://127.0.0.1:${server.address().port}`;
-settings = {...DEFAULTS,provider:'libre',endpoint:origin};
+settings = {...DEFAULTS,mode:'caption',provider:'libre',endpoint:origin};
 let browser;
 try {
   browser = await chromium.launch({executablePath:process.env.CHROMIUM_PATH || '/usr/lib/chromium/chromium',headless:true,args:['--no-sandbox','--autoplay-policy=no-user-gesture-required']});
@@ -42,11 +42,11 @@ try {
   await context.exposeBinding('bridgeRead',() => ({settings}));
   await context.exposeBinding('bridgeSave',async (_,data) => {
     settings = data.settings;
-    for (const page of context.pages()) await page.evaluate(() => window.storageListeners.forEach(fn => fn()));
+    for (const page of context.pages()) await page.evaluate(settings => window.storageListeners.forEach(fn => fn({settings:{newValue:settings}},'local')),settings);
   });
   await context.addInitScript(() => {
     window.storageListeners = [];
-    window.chrome = {runtime:{sendMessage: payload => window.bridgeMessage(payload)},storage:{local:{get: () => window.bridgeRead(),set: data => window.bridgeSave(data)},onChanged:{addListener: fn => storageListeners.push(fn)}},permissions:{request:async () => true}};
+    window.chrome = {runtime:{onMessage:{addListener:fn => window.audioMessage=fn},sendMessage: payload => window.bridgeMessage(payload)},storage:{local:{get: () => window.bridgeRead(),set: data => window.bridgeSave(data)},onChanged:{addListener: fn => storageListeners.push(fn)}},permissions:{request:async () => true}};
     const attach = Element.prototype.attachShadow;
     Element.prototype.attachShadow = function(options) {return attach.call(this,{...options,mode:'open'});};
   });
@@ -81,7 +81,7 @@ try {
   await popup.reload();assert.equal(await popup.locator('#enabled').isChecked(),false);
   await popup.locator('#enabled').check();
   await page.waitForFunction(() => document.querySelector('[data-subtitle-bridge]').shadowRoot.querySelector('.translation').textContent === '你好，世界' && document.querySelector('[data-subtitle-bridge]').style.display === 'block');
-  await popup.locator('#bilingual').uncheck();await popup.locator('button').click();
+  await popup.locator('#bilingual').uncheck();await popup.locator('#save').click();
   await page.waitForFunction(() => document.querySelector('[data-subtitle-bridge]').shadowRoot.querySelector('.source').style.display === 'none');
   await page.evaluate(() => {
     for (const cue of [...testTrack.cues]) testTrack.removeCue(cue);

@@ -6,6 +6,7 @@
   let debounce;
   let previousTranslation = '';
   let retryAfter = 0;
+  let speechTimer;
   let context;
   const ownedTracks = new Set();
   const host = document.createElement('div');
@@ -20,7 +21,9 @@
   const translated = shadow.querySelector('.translation');
   function hide() {host.style.display = 'none';}
   function position() {
-    if (!video || !host.isConnected) return;
+    if (!host.isConnected) return;
+    if (!video) {Object.assign(host.style,{left:'5vw',top:'auto',bottom:'8vh',width:'90vw'});return;}
+    host.style.bottom = 'auto';
     const r = video.getBoundingClientRect();
     if (r.width < 100 || r.height < 60 || r.bottom <= 0 || r.top >= innerHeight) return hide();
     Object.assign(host.style, {left: `${Math.max(0,r.left)}px`, top: `${Math.max(0,r.top + r.height * .72)}px`, width: `${Math.min(r.width, innerWidth - Math.max(0,r.left))}px`});
@@ -71,7 +74,7 @@
     } catch {if (token === revision) {retryAfter = Date.now() + 30000; paint('插件已更新，请刷新页面', true);}}
   }
   function tick() {
-    if (!settings.enabled) return;
+    if (!settings.enabled || settings.mode === 'audio') return;
     const next = findVideo();
     const nextContext = `${location.href}|${next?.currentSrc || ''}`;
     if (next !== video || context !== nextContext) {restoreTracks(); video = next; context = nextContext; current = ''; revision++; hide();}
@@ -96,11 +99,26 @@
       if (!result?.ok) return;
       settings = result.settings;
       revision++; current = ''; retryAfter = 0; previousTranslation = '';
+      clearTimeout(speechTimer);
       clearTimeout(debounce); hide();
       if (!settings.enabled) restoreTracks(); else tick();
     } catch {hide();}
   }
-  chrome.storage.onChanged.addListener(reload);
+  chrome.runtime.onMessage.addListener(message => {
+    if (message?.type !== 'speech-display' || settings.mode !== 'audio' || !settings.enabled) return;
+    clearTimeout(speechTimer);
+    if (message.state === 'stopped') {current = '';hide();return;}
+    video = findVideo();
+    current = message.text || '语音听译';
+    previousTranslation = message.translation || '';
+    if (message.state === 'result') paint(message.translation);
+    else if (message.state === 'error') paint(message.error,true);
+    else paint(message.state === 'translating' ? '正在翻译识别结果…' : '正在听声识别，每 4 秒处理一段…',true);
+    speechTimer = setTimeout(() => {current = '';hide();}, 10000);
+  });
+  chrome.storage.onChanged.addListener((changes,area) => {
+    if (area === 'local' && changes.settings) reload();
+  });
   document.addEventListener('fullscreenchange', () => {if (current) paint(previousTranslation || '正在翻译…', !previousTranslation);});
   window.addEventListener('resize', position);
   document.addEventListener('scroll', position, true);
