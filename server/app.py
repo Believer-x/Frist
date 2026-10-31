@@ -2,6 +2,7 @@
 import asyncio
 import os
 import re
+import time
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Request
 from .audio import MAX_UPLOAD, decode_wav
@@ -18,7 +19,7 @@ def create_app(model_override=None):
             from faster_whisper import WhisperModel
             app.state.model = await asyncio.to_thread(
                 WhisperModel,
-                os.getenv('WHISPER_MODEL', 'base'),
+                os.getenv('WHISPER_MODEL', 'tiny'),
                 device=os.getenv('WHISPER_DEVICE', 'cpu'),
                 compute_type=os.getenv('WHISPER_COMPUTE_TYPE', 'int8'),
                 cpu_threads=min(4, os.cpu_count() or 1),
@@ -54,7 +55,7 @@ def create_app(model_override=None):
 
     @app.get('/health')
     async def health():
-        return {'ready': app.state.model is not None, 'model': os.getenv('WHISPER_MODEL', 'base')}
+        return {'ready': app.state.model is not None, 'model': os.getenv('WHISPER_MODEL', 'tiny')}
 
     @app.post('/transcribe')
     async def transcribe(request: Request, language: str = 'auto'):
@@ -75,14 +76,18 @@ def create_app(model_override=None):
             raise HTTPException(400, str(error)) from error
 
         def recognize():
+            started = time.perf_counter()
             segments, info = app.state.model.transcribe(
                 audio, language=None if language == 'auto' else language,
-                beam_size=1, vad_filter=True, condition_on_previous_text=False,
+                beam_size=1, best_of=1, temperature=0.0, without_timestamps=True,
+                vad_filter=True, condition_on_previous_text=False,
                 vad_parameters={'min_silence_duration_ms': 300},
             )
             # faster-whisper is lazy: consume segments while still holding the lock.
             text = ' '.join(segment.text.strip() for segment in segments).strip()
-            return {'text': text[:1200], 'language': info.language}
+            return {'text': text[:1200], 'language': info.language,
+                    'language_probability': getattr(info, 'language_probability', 0),
+                    'inference_ms': round((time.perf_counter()-started)*1000)}
 
         if lock.locked():
             raise HTTPException(429, 'Speech engine is busy')

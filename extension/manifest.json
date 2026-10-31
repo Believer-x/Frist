@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "字幕桥 · 视频双语翻译",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "采集当前标签页声音，通过本机 Whisper 识别并翻译，显示双语字幕；同时支持网页现有字幕。",
   "permissions": [
     "storage",

@@ -22,7 +22,10 @@ class Model:
     def transcribe(self, audio, **kwargs):
         assert audio.dtype == np.float32 and len(audio) == 16000
         assert kwargs['vad_filter'] is True
-        return iter([SimpleNamespace(text=' Hello world ')]), SimpleNamespace(language='en')
+        assert kwargs['best_of'] == 1
+        assert kwargs['temperature'] == 0.0
+        assert kwargs['without_timestamps'] is True
+        return iter([SimpleNamespace(text=' Hello world ')]), SimpleNamespace(language='en',language_probability=0.95)
 
 
 class ServerTests(unittest.TestCase):
@@ -36,7 +39,10 @@ class ServerTests(unittest.TestCase):
             self.assertTrue(client.get('/health').json()['ready'])
             response = client.post('/transcribe?language=en',content=wav(),headers={'Content-Type':'audio/wav'})
             self.assertEqual(response.status_code,200)
-            self.assertEqual(response.json(),{'text':'Hello world','language':'en'})
+            self.assertEqual(response.json()['text'],'Hello world')
+            self.assertEqual(response.json()['language'],'en')
+            self.assertEqual(response.json()['language_probability'],0.95)
+            self.assertGreaterEqual(response.json()['inference_ms'],0)
             self.assertEqual(client.post('/transcribe?language=BAD',content=wav()).status_code,400)
             self.assertEqual(client.post('/transcribe',content=b'broken').status_code,400)
             self.assertEqual(client.post('/transcribe',content=b'0'*400001).status_code,413)

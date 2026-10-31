@@ -6,6 +6,8 @@ import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {DEFAULTS} from '../extension/translation.js';
 let settings, overlay, requests = 0, healthReady = true;
+let startAt = 0, firstRequestAt = 0, firstResultAt = 0, translating = 0, recognitionDuringTranslation = false;
+const languages = [];
 const listeners = [];
 globalThis.chrome = {
   runtime: {getURL:p => `chrome-extension://test/${p}`,onMessage:{addListener:fn => listeners.push(fn)}},
@@ -15,6 +17,7 @@ globalThis.chrome = {
 await import('../extension/background.js');
 async function message(payload) {
   if (payload.type === 'speech-event') {
+    if (payload.state === 'result' && !firstResultAt) firstResultAt = Date.now();
     await overlay.evaluate(value => {
       window.receiver({...value,type:'speech-display'});
       window.storageHandler?.({speechState:{newValue:value}},'session');
@@ -29,17 +32,23 @@ const server = http.createServer(async (req,res) => {
   if (req.url.startsWith('/transcribe')) {
     const chunks=[];for await (const chunk of req) chunks.push(chunk);
     const data=Buffer.concat(chunks);requests++;
+    if (!firstRequestAt) firstRequestAt = Date.now();
+    if (translating) recognitionDuringTranslation = true;
+    languages.push(new URL(req.url,'http://localhost').searchParams.get('language'));
     assert.equal(data.toString('ascii',0,4),'RIFF');
     assert.equal(data.readUInt32LE(24),16000);
     assert.equal(data.readUInt16LE(22),1);
-    assert.equal(data.length,128044,'four-second PCM16 chunk');
+    assert.ok(data.length <= 48044 && data.length >= 11244,'speech chunk is between 0.35 and 1.5 seconds');
     let peak=0;for(let i=44;i<data.length;i+=2) peak=Math.max(peak,Math.abs(data.readInt16LE(i)));
     assert.ok(peak>100,'captured waveform is not silence');
-    res.setHeader('Content-Type','application/json');res.end(JSON.stringify({text:'Hello world',language:'en'}));return;
+    res.setHeader('Content-Type','application/json');res.end(JSON.stringify({text:'Hello world',language:'en',language_probability:.98}));return;
   }
   if (req.url === '/translate') {
     let body='';for await(const part of req) body+=part;
     assert.equal(JSON.parse(body).q,'Hello world');
+    translating++;
+    await new Promise(resolve => setTimeout(resolve,2200));
+    translating--;
     res.setHeader('Content-Type','application/json');res.end(JSON.stringify({translatedText:'你好，世界'}));return;
   }
   const name = req.url.split('/').pop();
@@ -77,11 +86,21 @@ try {
   await recorder.goto(origin+'/offscreen.html');
   await recorder.waitForFunction(()=>!!window.receiver);
   assert.equal(requests,0,'no audio uploaded before explicit start');
+  startAt = Date.now();
   const start = await recorder.evaluate(settings=>new Promise(resolve=>receiver({target:'offscreen',type:'offscreen-start',streamId:'test',tabId:1,settings},{},resolve)),settings);
   assert.equal(start.ok,true);
   await overlay.waitForFunction(()=>document.querySelector('[data-subtitle-bridge]')?.shadowRoot.querySelector('.translation').textContent==='你好，世界');
+  assert.ok(firstRequestAt-startAt < 3000,'first recognition request no longer waits four seconds');
+  assert.ok(recognitionDuringTranslation,'recognition continues during a deliberately slow translation');
+  assert.ok(requests >= 2,'more than one audio chunk recognized before first translation finishes');
+  assert.equal(languages[0],'auto');
+  assert.ok(languages.slice(1).every(value => value === 'en'),'confident language detection reused');
+  console.log(`Latency harness: first ASR upload ${firstRequestAt-startAt}ms; first translation result ${firstResultAt-startAt}ms (includes artificial 2200ms translation delay).`);
   const host=overlay.locator('[data-subtitle-bridge]');
   assert.equal(await host.locator('.source').textContent(),'Hello world');
+  await overlay.evaluate(() => receiver({type:'speech-display',state:'translating',text:'Next sentence'}));
+  assert.equal(await host.locator('.translation').textContent(),'你好，世界','completed translation stays visible while the next request is pending');
+  assert.equal(await host.locator('.source').textContent(),'Hello world','original and translated text remain paired');
   const stopped=await recorder.evaluate(()=>new Promise(resolve=>receiver({target:'offscreen',type:'offscreen-stop'},{},resolve)));
   assert.equal(stopped.ok,true);
   assert.equal(await recorder.evaluate(()=>fixtureDestination.stream.getTracks().every(track=>track.readyState==='ended')),true);

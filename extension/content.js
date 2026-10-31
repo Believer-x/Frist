@@ -106,14 +106,15 @@
   }
   chrome.runtime.onMessage.addListener(message => {
     if (message?.type !== 'speech-display' || settings.mode !== 'audio' || !settings.enabled) return;
+    if (message.state === 'stopped') {clearTimeout(speechTimer);current = '';hide();return;}
+    if (message.state === 'translating' && previousTranslation && current) return;
     clearTimeout(speechTimer);
-    if (message.state === 'stopped') {current = '';hide();return;}
     video = findVideo();
     current = message.text || '语音听译';
     previousTranslation = message.translation || '';
     if (message.state === 'result') paint(message.translation);
     else if (message.state === 'error') paint(message.error,true);
-    else paint(message.state === 'translating' ? '正在翻译识别结果…' : '正在听声识别，每 4 秒处理一段…',true);
+    else paint(message.state === 'translating' ? '正在翻译识别结果…' : '正在听声识别，短句说完即处理…',true);
     speechTimer = setTimeout(() => {current = '';hide();}, 10000);
   });
   chrome.storage.onChanged.addListener((changes,area) => {

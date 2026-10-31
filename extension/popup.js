@@ -55,7 +55,8 @@ async function speechStatus() {
     if (!result?.ok) return;
     $('stopListen').disabled = !result.active;
     const state = result.speechState;
-    $('speechStatus').textContent = result.active ? (state?.state === 'error' ? state.error : '● 正在采集标签页声音') : (state?.error || '尚未开始采集音频');
+    const timing = result.active && state?.metrics ? ` · 识别 ${(state.metrics.recognitionMs/1000).toFixed(1)}s / 翻译 ${(state.metrics.translationMs/1000).toFixed(1)}s` : '';
+    $('speechStatus').textContent = (result.active ? (state?.state === 'error' ? state.error : '● 正在采集标签页声音') : (state?.error || '尚未开始采集音频')) + timing;
   } catch {}
 }
 $('listen').addEventListener('click', async () => {
